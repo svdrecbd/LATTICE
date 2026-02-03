@@ -328,6 +328,14 @@ Non-goals:
 
 ---
 
+## Security notes
+
+- Do **not** commit real secrets or local configs.
+- Keep JSONL logs private (they can reveal timing patterns).
+- Use `scripts/rotate_secret.py` if you need to rotate secrets.
+
+---
+
 ## Next steps (ideas)
 - Menubar UI wrapper for start/stop + status
 - Baseline modeling per endpoint (rolling median/MAD)
