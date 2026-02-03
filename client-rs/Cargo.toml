@@ -1,0 +1,9 @@
+[workspace]
+members = [
+  "lattice-core",
+  "lattice-client",
+  "lattice-os-macos",
+  "lattice-os-linux",
+  "lattice-analyze",
+]
+resolver = "2"

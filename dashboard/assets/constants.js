@@ -1,0 +1,38 @@
+(() => {
+  const MS_PER_SEC = 1000;
+  const SEC_PER_MIN = 60;
+  const SEC_PER_HOUR = 60 * SEC_PER_MIN;
+
+  const MAP_WIDTH = 1000;
+  const MAP_HEIGHT = 500;
+  const WORLD_LON_MAX = 180;
+  const WORLD_LAT_MAX = 90;
+  const WORLD_LON_SPAN = WORLD_LON_MAX * 2;
+  const WORLD_LAT_SPAN = WORLD_LAT_MAX * 2;
+  const GRID_LAT_START = -60;
+  const GRID_LAT_END = 60;
+  const GRID_LON_START = -150;
+  const GRID_LON_END = 150;
+  const GRID_STEP_DEG = 30;
+  const KM_PER_DEG_LAT = 111.0;
+  const REFRESH_MS_FALLBACK = MS_PER_SEC;
+
+  window.LATTICE_CONSTANTS = {
+    MS_PER_SEC,
+    SEC_PER_MIN,
+    SEC_PER_HOUR,
+    MAP_WIDTH,
+    MAP_HEIGHT,
+    WORLD_LON_MAX,
+    WORLD_LAT_MAX,
+    WORLD_LON_SPAN,
+    WORLD_LAT_SPAN,
+    GRID_LAT_START,
+    GRID_LAT_END,
+    GRID_LON_START,
+    GRID_LON_END,
+    GRID_STEP_DEG,
+    KM_PER_DEG_LAT,
+    REFRESH_MS_FALLBACK,
+  };
+})();

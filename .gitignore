@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+*.jsonl
+.DS_Store
+
+# Rust build artifacts
+target/
+**/target/
+
+# Dashboard outputs
+dashboard/exports/
+dashboard/*.log
+
+# Local configs
+client-rs/config.local.json

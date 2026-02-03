@@ -1,0 +1,40 @@
+{
+  "secretHex": "REPLACE_WITH_SHARED_HEX_SECRET",
+  "endpoints": [
+    {
+      "id": "usw-lax",
+      "host": "REPLACE_WITH_IP_OR_DNS",
+      "port": 9000,
+      "regionHint": "us-west",
+      "lat": 34.0522,
+      "lon": -118.2437
+    },
+    {
+      "id": "use-nyc",
+      "host": "REPLACE_WITH_IP_OR_DNS",
+      "port": 9000,
+      "regionHint": "us-east",
+      "lat": 40.7128,
+      "lon": -74.0060
+    },
+    {
+      "id": "euc-fra",
+      "host": "REPLACE_WITH_IP_OR_DNS",
+      "port": 9000,
+      "regionHint": "europe",
+      "lat": 50.1109,
+      "lon": 8.6821
+    }
+  ],
+  "probePaths": [
+    { "id": "vpn" },
+    { "id": "direct", "bindInterface": "en0" }
+  ],
+  "samplesPerEndpoint": 10,
+  "spacingMs": 30,
+  "timeoutMs": 800,
+  "intervalSeconds": 60,
+  "outputPath": "/Users/svdr/Downloads/lattice/lattice.jsonl",
+  "claimedEgressRegion": null,
+  "physicsMismatchThresholdMs": 60
+}
