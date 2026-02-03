@@ -17,3 +17,6 @@ dashboard/*.log
 client-rs/config.local.json
 config.local.json
 **/config.local.json
+config.json
+client-rs/config.json
+dashboard/config.json
