@@ -351,4 +351,4 @@ See `CONTRIBUTING.md` for performance-first and ethics-first guidelines.
 ---
 
 ## License
-Pick MIT or Apache-2.0 for research friendliness.
+Apache-2.0 (see `LICENSE`).
