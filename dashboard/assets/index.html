@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LATTICE Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-spacer"></div>
+      <div class="status" id="status">Initializing…</div>
+      <div class="status" id="window">Window: n/a</div>
+      <div class="status" id="updated">Last update: n/a</div>
+    </header>
+
+    <main class="grid">
+      <section class="panel map-panel">
+        <div class="panel-header">Map</div>
+        <div class="panel-body">
+          <svg id="map" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+        <div class="panel-footer map-footer">
+          <div id="map-legend"></div>
+          <div class="map-actions">
+            <button class="action-btn" id="session-btn">Mark Session</button>
+            <button class="action-btn" id="export-btn">Export</button>
+            <span class="status" id="export-status"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel estimate-panel">
+        <div class="panel-header">Estimate</div>
+        <div class="panel-body estimate-body">
+          <div id="estimate-main"></div>
+          <div class="estimate-details">
+            <button class="action-btn" id="details-toggle">Details</button>
+            <div class="details-panel hidden" id="details-panel">
+              <div class="details-section">
+                <div class="details-title">Calibration</div>
+                <div id="details-calibration"></div>
+                <div id="details-drift-chart"></div>
+              </div>
+              <div class="details-section">
+                <div class="details-title">Hygiene</div>
+                <div id="details-hygiene"></div>
+              </div>
+              <div class="details-section">
+                <div class="details-title">Log</div>
+                <div id="details-log"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel stats-panel">
+        <div class="panel-header">Endpoint Stats</div>
+        <div class="panel-body">
+          <table id="stats">
+            <thead>
+              <tr>
+                <th>id</th>
+                <th>p05</th>
+                <th>p50</th>
+                <th>p95</th>
+                <th>jitter</th>
+                <th>max‑dist (tight)</th>
+                <th>max‑dist (loose)</th>
+                <th>samples</th>
+                <th>loss</th>
+                <th>last seen</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel claims-panel">
+        <div class="panel-header">Claim Checks</div>
+        <div class="panel-body">
+          <table id="claims">
+            <thead>
+              <tr>
+                <th>id</th>
+                <th>dist</th>
+                <th>max tight</th>
+                <th>max loose</th>
+                <th>falsify</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel baseline-panel">
+        <div class="panel-header">Baseline vs Session</div>
+        <div class="panel-body">
+          <table id="deltas">
+            <thead>
+              <tr>
+                <th>id</th>
+                <th>Δ p05</th>
+                <th>baseline</th>
+                <th>session</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel endpoints-panel">
+        <div class="panel-header">Endpoints</div>
+        <div class="panel-body">
+          <textarea id="endpoints-input" class="endpoint-input" spellcheck="false"
+            placeholder="id,host,port,region,lat,lon"></textarea>
+          <div class="endpoint-errors" id="endpoint-errors"></div>
+          <textarea id="probe-paths-input" class="endpoint-input" spellcheck="false"
+            placeholder="probe paths: id,bindInterface,bindIp"></textarea>
+          <div class="endpoint-errors" id="probe-paths-errors"></div>
+          <div class="endpoint-actions">
+            <button class="action-btn" id="endpoints-load">Load</button>
+            <button class="action-btn" id="endpoints-apply">Apply</button>
+            <button class="action-btn" id="probe-template">Split Template</button>
+            <button class="action-btn" id="client-start">Start</button>
+            <button class="action-btn" id="client-stop">Stop</button>
+            <button class="action-btn" id="server-start">Server Start</button>
+            <button class="action-btn" id="server-stop">Server Stop</button>
+            <button class="action-btn" id="clear-btn">Clear</button>
+            <span class="status" id="endpoints-status"></span>
+          </div>
+          <div class="endpoint-hint">CSV or JSON. Header row recommended.</div>
+          <div class="calibration-box">
+            <div class="calibration-title">Calibration</div>
+            <div class="calibration-row">
+              <input id="calib-lat" class="calibration-input" placeholder="lat (known)" />
+              <input id="calib-lon" class="calibration-input" placeholder="lon (known)" />
+            </div>
+            <div class="calibration-row">
+              <input id="calib-path" class="calibration-input calibration-path" placeholder="calibration.json (optional)" />
+            </div>
+            <div class="calibration-row">
+              <button class="action-btn" id="calib-generate">Generate</button>
+              <button class="action-btn" id="calib-load">Load</button>
+              <button class="action-btn" id="calib-clear">Clear</button>
+              <span class="status" id="calib-status"></span>
+            </div>
+            <div class="calibration-meta" id="calib-meta">calibration: none</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel logo-panel">
+        <div class="panel-body logo-box">
+          <img class="logo-box-img" src="lattice-logo.png" alt="Lattice logo" />
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="constants.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

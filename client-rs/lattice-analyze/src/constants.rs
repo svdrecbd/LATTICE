@@ -1,0 +1,19 @@
+pub const DEFAULT_GRID_DEG: f64 = 1.0;
+pub const DEFAULT_REFINE_DEG: f64 = 0.25;
+pub const DEFAULT_SPEED_KM_S: f64 = 200000.0;
+pub const DEFAULT_PATH_STRETCH: f64 = 1.1;
+pub const DEFAULT_BAND_FACTOR: f64 = 0.25;
+pub const DEFAULT_BAND_WINDOW_DEG: f64 = 3.0;
+pub const DEFAULT_TIMEOUT_MS: u64 = 1000;
+pub const DEFAULT_PORT: u16 = 9000;
+pub const DEFAULT_PHYSICS_MISMATCH_THRESHOLD_MS: f64 = 5.0;
+pub const MIN_PATH_STRETCH: f64 = 1.0;
+pub const MIN_JITTER_MS: f64 = 1.0;
+
+pub const MS_PER_SEC: f64 = 1000.0;
+pub const RTT_FACTOR: f64 = 2.0;
+pub const EARTH_RADIUS_KM: f64 = 6371.0;
+pub const WORLD_LAT_MAX: f64 = 90.0;
+pub const WORLD_LON_MAX: f64 = 180.0;
+pub const REFINE_WINDOW_MULT: f64 = 2.0;
+pub const SSE_EPSILON: f64 = 1e-6;

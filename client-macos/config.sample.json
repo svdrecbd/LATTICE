@@ -1,0 +1,36 @@
+{
+  "secretHex": "REPLACE_WITH_SHARED_HEX_SECRET",
+  "endpoints": [
+    {
+      "id": "eun-sto",
+      "host": "sto.example.net",
+      "port": 9000,
+      "regionHint": "stockholm"
+    },
+    {
+      "id": "usw-sjc",
+      "host": "sjc.example.net",
+      "port": 9000,
+      "regionHint": "us-west"
+    },
+    {
+      "id": "use-nyc",
+      "host": "nyc.example.net",
+      "port": 9000,
+      "regionHint": "us-east"
+    },
+    {
+      "id": "euc-fra",
+      "host": "fra.example.net",
+      "port": 9000,
+      "regionHint": "europe"
+    }
+  ],
+  "samplesPerEndpoint": 10,
+  "spacingMs": 30,
+  "timeoutMs": 800,
+  "intervalSeconds": 60,
+  "outputPath": "/Users/svdr/Downloads/lattice/lattice.jsonl",
+  "claimedEgressRegion": "stockholm",
+  "physicsMismatchThresholdMs": 60
+}
