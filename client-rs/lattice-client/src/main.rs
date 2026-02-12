@@ -17,6 +17,9 @@ use lattice_os_macos as os;
 #[cfg(target_os = "linux")]
 use lattice_os_linux as os;
 
+const RECONNECT_EMPTY_BURSTS: usize = 2;
+const RECONNECT_INTERVAL_BURSTS: usize = 6;
+
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -231,13 +234,10 @@ fn endpoint_worker(
     secret: Arc<Vec<u8>>,
     tx: mpsc::Sender<BurstRecord>,
 ) {
-    let mut prober = match os::UdpProber::new(&target.endpoint.host, target.endpoint.port, target.bind_ip) {
-        Ok(p) => p,
-        Err(err) => {
-            eprintln!("[!!] {} probe init failed: {}", target.endpoint.id, err);
-            return;
-        }
-    };
+    let mut prober_opt: Option<os::UdpProber> = None;
+    let mut last_utun_active: Option<bool> = None;
+    let mut burst_since_refresh: usize = 0;
+    let mut empty_burst_streak: usize = 0;
 
     let interval = Duration::from_secs(cfg.interval_seconds);
     let spacing = Duration::from_millis(cfg.spacing_ms);
@@ -249,6 +249,35 @@ fn endpoint_worker(
 
     loop {
         let utun_report = os::utun_report();
+        let mut refresh_socket = false;
+        if let Some(prev) = last_utun_active {
+            if prev != utun_report.active {
+                refresh_socket = true;
+            }
+        }
+        if burst_since_refresh >= RECONNECT_INTERVAL_BURSTS {
+            refresh_socket = true;
+        }
+        if refresh_socket {
+            prober_opt = None;
+            burst_since_refresh = 0;
+            empty_burst_streak = 0;
+        }
+
+        if prober_opt.is_none() {
+            match os::UdpProber::new(&target.endpoint.host, target.endpoint.port, target.bind_ip) {
+                Ok(p) => prober_opt = Some(p),
+                Err(err) => {
+                    eprintln!("[!!] {} probe init failed: {}", target.endpoint.id, err);
+                    last_utun_active = Some(utun_report.active);
+                    sleep_until(next_tick, cfg.pacing_spin_us);
+                    next_tick += interval;
+                    continue;
+                }
+            }
+        }
+
+        let prober = prober_opt.as_mut().unwrap();
         let iface_name = prober.iface_name().unwrap_or_else(|_| "unknown".to_string());
         let local_addr = prober
             .local_addr()
@@ -288,6 +317,12 @@ fn endpoint_worker(
                     eprintln!("[!!] {} send/recv failed: {}", target.endpoint.id, err);
                 }
             }
+        }
+
+        if samples.is_empty() {
+            empty_burst_streak += 1;
+        } else {
+            empty_burst_streak = 0;
         }
 
         let (mn, p05, med) = summarize(&samples);
@@ -343,6 +378,14 @@ fn endpoint_worker(
         if tx.send(rec).is_err() {
             break;
         }
+
+        if empty_burst_streak >= RECONNECT_EMPTY_BURSTS {
+            prober_opt = None;
+            burst_since_refresh = 0;
+        } else {
+            burst_since_refresh += 1;
+        }
+        last_utun_active = Some(utun_report.active);
 
         let now = Instant::now();
         if now < next_tick {

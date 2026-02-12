@@ -35,11 +35,20 @@ const {
   KM_PER_DEG_LAT,
   REFRESH_MS_FALLBACK,
 } = Object.assign({}, DEFAULT_CONSTANTS, window.LATTICE_CONSTANTS || {});
+const WORLD_LAND_PATH = window.LATTICE_WORLD_LAND_PATH || "";
+const MAP_SCALE_MIN = 1.0;
+const MAP_SCALE_MAX = 6.0;
+const DEG_TO_RAD = Math.PI / 180.0;
 let latestState = null;
 let apiReady = false;
 const driftHistory = [];
 const DRIFT_HISTORY_MAX = 120;
 let lastDriftTs = 0;
+const mapTransform = { scale: 1.0, tx: 0.0, ty: 0.0 };
+let mapDragging = false;
+let mapDragStart = null;
+let refreshPaused = false;
+let calibPollTimer = null;
 
 function getApi() {
   return window.pywebview && window.pywebview.api ? window.pywebview.api : null;
@@ -122,8 +131,174 @@ function mapXY(lat, lon) {
   return [x, y];
 }
 
+function kmToPxLat(km) {
+  const deg = km / KM_PER_DEG_LAT;
+  const [, y1] = mapXY(0 + deg, 0);
+  const [, y0] = mapXY(0, 0);
+  return Math.abs(y1 - y0);
+}
+
+function kmToPxLon(km, lat) {
+  const cosLat = Math.cos(lat * DEG_TO_RAD);
+  if (cosLat < 1e-6) return 0;
+  const deg = km / (KM_PER_DEG_LAT * cosLat);
+  const [x1] = mapXY(lat, 0 + deg);
+  const [x0] = mapXY(lat, 0);
+  return Math.abs(x1 - x0);
+}
+
+function ellipseSvg(cx, cy, lat, ellipse, className) {
+  if (!ellipse) return "";
+  const major = ellipse.majorKm || 0;
+  const minor = ellipse.minorKm || 0;
+  if (!major || !minor) return "";
+  const rx = kmToPxLon(major, lat);
+  const ry = kmToPxLat(minor);
+  const angle = ellipse.angleDeg || 0;
+  return `<ellipse class="${className}" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" transform="rotate(${angle} ${cx} ${cy})" />`;
+}
+
 function clearNode(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
+}
+
+function pauseRefresh() {
+  refreshPaused = true;
+}
+
+function resumeRefresh() {
+  refreshPaused = false;
+  refresh();
+}
+
+function setCalibStatus(text, busy = false) {
+  const calibStatus = document.getElementById("calib-status");
+  if (!calibStatus) return;
+  calibStatus.textContent = text;
+  if (busy) {
+    calibStatus.classList.add("busy");
+  } else {
+    calibStatus.classList.remove("busy");
+  }
+}
+
+function handleCalibrationResult(kind, result, error) {
+  if (error) {
+    setCalibStatus(error, false);
+    return;
+  }
+  if (!result || result.ok === false) {
+    setCalibStatus((result && result.error) || "Calibration failed", false);
+    return;
+  }
+  if (kind === "generate") {
+    setCalibStatus(`Saved (${result.count || 0} endpoints)`, false);
+    const calibPathInput = document.getElementById("calib-path");
+    if (calibPathInput && result.path) {
+      calibPathInput.value = result.path;
+    }
+  } else if (kind === "load") {
+    setCalibStatus("Loaded", false);
+  } else if (kind === "clear") {
+    setCalibStatus("Cleared", false);
+  } else {
+    setCalibStatus("Done", false);
+  }
+}
+
+function startCalibrationPoll(kind) {
+  if (calibPollTimer) {
+    clearInterval(calibPollTimer);
+    calibPollTimer = null;
+  }
+  const api = getApi();
+  if (!api) return;
+  pauseRefresh();
+  setCalibStatus("Working…", true);
+  calibPollTimer = setInterval(async () => {
+    try {
+      const status = await api.get_calibration_status();
+      if (!status || status.running) return;
+      clearInterval(calibPollTimer);
+      calibPollTimer = null;
+      handleCalibrationResult(status.kind || kind, status.result, status.error);
+      resumeRefresh();
+    } catch (err) {
+      clearInterval(calibPollTimer);
+      calibPollTimer = null;
+      setCalibStatus("Calibration failed", false);
+      resumeRefresh();
+    }
+  }, 600);
+}
+
+function mapTransformStr() {
+  return `translate(${mapTransform.tx.toFixed(2)} ${mapTransform.ty.toFixed(2)}) scale(${mapTransform.scale.toFixed(3)})`;
+}
+
+function applyMapTransform() {
+  const layer = document.getElementById("map-layer");
+  if (layer) layer.setAttribute("transform", mapTransformStr());
+}
+
+function setupMapControls() {
+  const svg = document.getElementById("map");
+  if (!svg) return;
+
+  svg.addEventListener(
+    "wheel",
+    (ev) => {
+      ev.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const cx = ev.clientX - rect.left;
+      const cy = ev.clientY - rect.top;
+      const direction = ev.deltaY > 0 ? 0.9 : 1.1;
+      const nextScale = Math.min(MAP_SCALE_MAX, Math.max(MAP_SCALE_MIN, mapTransform.scale * direction));
+      if (nextScale === mapTransform.scale) return;
+      const x = (cx - mapTransform.tx) / mapTransform.scale;
+      const y = (cy - mapTransform.ty) / mapTransform.scale;
+      mapTransform.scale = nextScale;
+      mapTransform.tx = cx - x * nextScale;
+      mapTransform.ty = cy - y * nextScale;
+      applyMapTransform();
+    },
+    { passive: false }
+  );
+
+  svg.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;
+    mapDragging = true;
+    mapDragStart = { x: ev.clientX, y: ev.clientY, tx: mapTransform.tx, ty: mapTransform.ty };
+    svg.classList.add("dragging");
+  });
+
+  window.addEventListener("mousemove", (ev) => {
+    if (!mapDragging || !mapDragStart) return;
+    mapTransform.tx = mapDragStart.tx + (ev.clientX - mapDragStart.x);
+    mapTransform.ty = mapDragStart.ty + (ev.clientY - mapDragStart.y);
+    applyMapTransform();
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!mapDragging) return;
+    mapDragging = false;
+    mapDragStart = null;
+    svg.classList.remove("dragging");
+  });
+
+  svg.addEventListener("mouseleave", () => {
+    if (!mapDragging) return;
+    mapDragging = false;
+    mapDragStart = null;
+    svg.classList.remove("dragging");
+  });
+
+  svg.addEventListener("dblclick", () => {
+    mapTransform.scale = 1.0;
+    mapTransform.tx = 0.0;
+    mapTransform.ty = 0.0;
+    applyMapTransform();
+  });
 }
 
 function renderSparkline(values, width = 180, height = 48) {
@@ -177,6 +352,10 @@ function drawMap(state) {
   const svg = document.getElementById("map");
   clearNode(svg);
 
+  const land = WORLD_LAND_PATH
+    ? `<path class="land" d="${WORLD_LAND_PATH}" />`
+    : "";
+
   const gridLines = [];
   for (let lat = GRID_LAT_START; lat <= GRID_LAT_END; lat += GRID_STEP_DEG) {
     const [x1, y1] = mapXY(lat, -WORLD_LON_MAX);
@@ -209,7 +388,9 @@ function drawMap(state) {
       const radiusDeg = loose.radiusKm / KM_PER_DEG_LAT;
       const [rx, ry] = mapXY(lat + radiusDeg, lon);
       const r = Math.abs(ry - y);
-      bandLoose = `<circle class="band band-loose" cx="${x}" cy="${y}" r="${r}" />`;
+      bandLoose = loose.ellipse
+        ? ellipseSvg(x, y, lat, loose.ellipse, "band band-loose band-ellipse")
+        : `<circle class="band band-loose" cx="${x}" cy="${y}" r="${r}" />`;
       if (
         loose.minLat !== undefined &&
         loose.maxLat !== undefined &&
@@ -227,7 +408,9 @@ function drawMap(state) {
       const radiusDeg = tight.radiusKm / KM_PER_DEG_LAT;
       const [rx, ry] = mapXY(lat + radiusDeg, lon);
       const r = Math.abs(ry - y);
-      bandTight = `<circle class="band band-tight" cx="${x}" cy="${y}" r="${r}" />`;
+      bandTight = tight.ellipse
+        ? ellipseSvg(x, y, lat, tight.ellipse, "band band-tight band-ellipse")
+        : `<circle class="band band-tight" cx="${x}" cy="${y}" r="${r}" />`;
     }
   }
 
@@ -237,15 +420,19 @@ function drawMap(state) {
     claimPoint = `<circle class="claim" cx="${x}" cy="${y}" r="4" />`;
   }
 
+  const transform = mapTransformStr();
   svg.innerHTML = `
     <rect width="${MAP_WIDTH}" height="${MAP_HEIGHT}" fill="#0b0b0b" />
-    ${gridLines.join("")}
-    ${region}
-    ${bandLoose}
-    ${bandTight}
-    ${points.join("")}
-    ${estPoint}
-    ${claimPoint}
+    <g id="map-layer" transform="${transform}">
+      ${land}
+      ${gridLines.join("")}
+      ${region}
+      ${bandLoose}
+      ${bandTight}
+      ${points.join("")}
+      ${estPoint}
+      ${claimPoint}
+    </g>
   `;
 }
 
@@ -488,7 +675,8 @@ function updateUI(state) {
         c.calibrationLat !== undefined && c.calibrationLon !== undefined
           ? `@ ${c.calibrationLat.toFixed(4)}, ${c.calibrationLon.toFixed(4)}`
           : "";
-      calibMeta.textContent = `calibration: ${c.count || 0} endpoints ${loc}`;
+      const samples = c.sampleCount ? ` • ${c.sampleCount} samples` : "";
+      calibMeta.textContent = `calibration: ${c.count || 0} endpoints${samples} ${loc}`;
       if (calibPathInput && !calibPathInput.value && c.path) {
         calibPathInput.value = c.path;
       }
@@ -530,6 +718,7 @@ function updateUI(state) {
 }
 
 async function refresh() {
+  if (refreshPaused) return;
   const api = getApi();
   if (!api) return;
   try {
@@ -794,27 +983,25 @@ function setupActions() {
       const lat = parseFloat(calibLat ? calibLat.value.trim() : "");
       const lon = parseFloat(calibLon ? calibLon.value.trim() : "");
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-        if (calibStatus) calibStatus.textContent = "Enter valid lat/lon";
+        setCalibStatus("Enter valid lat/lon", false);
         return;
       }
       calibGenerate.disabled = true;
-      if (calibStatus) calibStatus.textContent = "Generating…";
       try {
         const res = await api.generate_calibration({
           lat,
           lon,
           outputPath: calibPath ? calibPath.value.trim() : "",
         });
-        if (res && res.ok) {
-          if (calibPath && res.path) calibPath.value = res.path;
-          if (calibStatus) {
-            calibStatus.textContent = `Saved (${res.count || 0} endpoints)`;
-          }
+        if (res && res.ok && res.running) {
+          startCalibrationPoll("generate");
+        } else if (res && res.ok) {
+          handleCalibrationResult("generate", res, null);
         } else {
-          if (calibStatus) calibStatus.textContent = res.error || "Generate failed";
+          setCalibStatus((res && res.error) || "Generate failed", false);
         }
       } catch (err) {
-        if (calibStatus) calibStatus.textContent = "Generate failed";
+        setCalibStatus("Generate failed", false);
       } finally {
         calibGenerate.disabled = false;
       }
@@ -827,20 +1014,21 @@ function setupActions() {
       if (!api) return;
       const path = calibPath ? calibPath.value.trim() : "";
       if (!path) {
-        if (calibStatus) calibStatus.textContent = "Enter calibration path";
+        setCalibStatus("Enter calibration path", false);
         return;
       }
       calibLoad.disabled = true;
-      if (calibStatus) calibStatus.textContent = "Loading…";
       try {
         const res = await api.load_calibration({ path });
-        if (res && res.ok) {
-          if (calibStatus) calibStatus.textContent = "Loaded";
+        if (res && res.ok && res.running) {
+          startCalibrationPoll("load");
+        } else if (res && res.ok) {
+          handleCalibrationResult("load", res, null);
         } else {
-          if (calibStatus) calibStatus.textContent = res.error || "Load failed";
+          setCalibStatus((res && res.error) || "Load failed", false);
         }
       } catch (err) {
-        if (calibStatus) calibStatus.textContent = "Load failed";
+        setCalibStatus("Load failed", false);
       } finally {
         calibLoad.disabled = false;
       }
@@ -852,12 +1040,17 @@ function setupActions() {
       const api = getApi();
       if (!api) return;
       calibClear.disabled = true;
-      if (calibStatus) calibStatus.textContent = "Clearing…";
       try {
-        await api.clear_calibration();
-        if (calibStatus) calibStatus.textContent = "Cleared";
+        const res = await api.clear_calibration();
+        if (res && res.ok && res.running) {
+          startCalibrationPoll("clear");
+        } else if (res && res.ok) {
+          handleCalibrationResult("clear", res, null);
+        } else {
+          setCalibStatus((res && res.error) || "Clear failed", false);
+        }
       } catch (err) {
-        if (calibStatus) calibStatus.textContent = "Clear failed";
+        setCalibStatus("Clear failed", false);
       } finally {
         calibClear.disabled = false;
       }
@@ -880,6 +1073,7 @@ window.addEventListener("load", () => {
     if (apiReady) return;
     apiReady = true;
     setupActions();
+    setupMapControls();
     loadEndpointsIntoBox();
     refresh();
     setInterval(refresh, refreshMs);

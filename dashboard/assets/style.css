@@ -46,6 +46,22 @@ body {
   color: var(--muted);
 }
 
+.status.busy::after {
+  content: " •";
+  color: var(--accent);
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
 .grid {
   display: grid;
   grid-template-columns: 2fr 1fr;
@@ -298,6 +314,11 @@ body {
   min-height: 420px;
   background: #0b0b0b;
   border: 1px solid var(--panel-border);
+  cursor: grab;
+}
+
+#map.dragging {
+  cursor: grabbing;
 }
 
 .table-empty {
@@ -352,6 +373,13 @@ svg .grid {
   stroke-width: 1;
 }
 
+svg .land {
+  fill: #111111;
+  stroke: #1b1b1b;
+  stroke-width: 0.6;
+  fill-rule: evenodd;
+}
+
 svg .endpoint {
   fill: #bdbdbd;
 }
@@ -369,6 +397,10 @@ svg .band {
   stroke: var(--accent-dim);
   stroke-width: 1.5;
   stroke-dasharray: 4 4;
+}
+
+svg .band-ellipse {
+  stroke-linecap: round;
 }
 
 svg .band-tight {

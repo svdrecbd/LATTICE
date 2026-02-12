@@ -1,0 +1,106 @@
+{
+  "generatedAt": 1770173649474,
+  "calibrationLat": 37.756343,
+  "calibrationLon": -122.411332,
+  "speedKmS": 200000.0,
+  "pathStretch": 1.1,
+  "endpoints": {
+    "lattice-southamerica-east1": {
+      "biasMs": 61.29886021875889,
+      "scale": 1.0
+    },
+    "lattice-us-south1": {
+      "biasMs": 16.95092325073477,
+      "scale": 1.0
+    },
+    "lattice-us-west2": {
+      "biasMs": 5.933119723744548,
+      "scale": 1.0
+    },
+    "lattice-asia-east1": {
+      "biasMs": 25.670454721469355,
+      "scale": 1.0
+    },
+    "lattice-us-west4": {
+      "biasMs": 10.161041281766838,
+      "scale": 1.0
+    },
+    "lattice-us-west1": {
+      "biasMs": 11.680427263950389,
+      "scale": 1.0
+    },
+    "lattice-europe-west2": {
+      "biasMs": 46.66375396514209,
+      "scale": 1.0
+    },
+    "lattice-europe-west1": {
+      "biasMs": 48.63805448143002,
+      "scale": 1.0
+    },
+    "lattice-us-west3": {
+      "biasMs": 18.357801168117422,
+      "scale": 1.0
+    },
+    "lattice-australia-southeast1": {
+      "biasMs": 18.27039455476958,
+      "scale": 1.0
+    },
+    "lattice-europe-west4": {
+      "biasMs": 54.21363659904557,
+      "scale": 1.0
+    },
+    "lattice-europe-west3": {
+      "biasMs": 53.87359023024243,
+      "scale": 1.0
+    },
+    "lattice-europe-west6": {
+      "biasMs": 55.822664830038676,
+      "scale": 1.0
+    },
+    "lattice-northamerica-northeast1": {
+      "biasMs": 30.080538859270817,
+      "scale": 1.0
+    },
+    "lattice-southamerica-west1": {
+      "biasMs": 53.66751350437839,
+      "scale": 1.0
+    },
+    "lattice-us-central1": {
+      "biasMs": 23.438558269169963,
+      "scale": 1.0
+    },
+    "lattice-europe-north1": {
+      "biasMs": 71.80685003215828,
+      "scale": 1.0
+    },
+    "lattice-asia-southeast1": {
+      "biasMs": 21.101589638346866,
+      "scale": 1.0
+    },
+    "lattice-us-east5": {
+      "biasMs": 28.932362483835746,
+      "scale": 1.0
+    },
+    "lattice-us-east4": {
+      "biasMs": 23.936391458604383,
+      "scale": 1.0
+    },
+    "lattice-us-east1": {
+      "biasMs": 27.331858819844406,
+      "scale": 1.0
+    },
+    "lattice-asia-northeast1": {
+      "biasMs": 20.15061993256583,
+      "scale": 1.0
+    },
+    "lattice-asia-south1": {
+      "biasMs": 86.2879287574456,
+      "scale": 1.0
+    },
+    "lattice-me-central1": {
+      "biasMs": 99.26625660113763,
+      "scale": 1.0
+    }
+  },
+  "path": "/Users/svdr/Downloads/lattice/client-rs/calibration.json"
+}

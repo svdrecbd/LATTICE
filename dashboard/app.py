@@ -11,7 +11,7 @@ import time
 import socket
 import ipaddress
 from datetime import datetime
-from math import asin, cos, radians, sin, sqrt
+from math import asin, atan2, cos, pi, radians, sin, sqrt
 from pathlib import Path
 
 import pandas as pd
@@ -26,13 +26,17 @@ try:
         DEFAULT_PATH_STRETCH,
         DEFAULT_PORT,
         DEFAULT_REFRESH_MS,
+        DEFAULT_ESTIMATE_INTERVAL_MS,
         DEFAULT_REFINE_DEG,
         DEFAULT_SPEED_KM_S,
         DEFAULT_WINDOW_MINUTES,
         CALIB_DRIFT_WARN_MS,
         EARTH_RADIUS_KM,
         LOG_RESET_NOTICE_MS,
+        MAX_CALIBRATION_SAMPLES,
+        MAX_CALIBRATION_SCALE,
         MIN_JITTER_MS,
+        MIN_CALIBRATION_SCALE,
         MS_PER_MIN,
         MS_PER_SEC,
         REFINE_WINDOW_MULT,
@@ -51,13 +55,17 @@ except ImportError:
         DEFAULT_PATH_STRETCH,
         DEFAULT_PORT,
         DEFAULT_REFRESH_MS,
+        DEFAULT_ESTIMATE_INTERVAL_MS,
         DEFAULT_REFINE_DEG,
         DEFAULT_SPEED_KM_S,
         DEFAULT_WINDOW_MINUTES,
         CALIB_DRIFT_WARN_MS,
         EARTH_RADIUS_KM,
         LOG_RESET_NOTICE_MS,
+        MAX_CALIBRATION_SAMPLES,
+        MAX_CALIBRATION_SCALE,
         MIN_JITTER_MS,
+        MIN_CALIBRATION_SCALE,
         MS_PER_MIN,
         MS_PER_SEC,
         REFINE_WINDOW_MULT,
@@ -113,6 +121,7 @@ class StateManager:
         self.refine = refine
         self.band_factor = band_factor
         self.band_window_deg = band_window_deg
+        self.estimate_interval_ms = DEFAULT_ESTIMATE_INTERVAL_MS
 
         self._lock = threading.Lock()
         self._offset = 0
@@ -141,6 +150,8 @@ class StateManager:
         self._auto_baseline_records = []
         self._auto_baseline_lines = []
         self._auto_baseline_complete = False
+        self._estimate_cache = None
+        self._estimate_cache_ms = 0
 
     def mark_session(self):
         with self._lock:
@@ -171,6 +182,7 @@ class StateManager:
             samples = {k: list(v) for k, v in self._samples.items()}
             speed_km_s = self.speed_km_s
             path_stretch = self.path_stretch
+            prev_cal = self._calibration
         stats_source = None
         source_label = "baseline"
         if prefer_baseline and baseline_stats:
@@ -180,7 +192,16 @@ class StateManager:
             source_label = "window"
         if not stats_source:
             return {"ok": False, "error": "No stats available yet"}
-        cal = build_calibration(cfg, stats_source, lat, lon, speed_km_s, path_stretch)
+        cal = build_calibration(
+            cfg,
+            stats_source,
+            lat,
+            lon,
+            speed_km_s,
+            path_stretch,
+            previous=prev_cal,
+            source=source_label,
+        )
         if not cal.get("endpoints"):
             return {"ok": False, "error": "No endpoints with lat/lon in stats"}
         if output_path:
@@ -328,16 +349,23 @@ class StateManager:
                     self._calibration,
                 )
 
-            estimate = estimate_location(
-                session_stats,
-                self.endpoints,
-                self.effective_speed_km_s,
-                self.grid,
-                self.refine,
-                self.band_factor,
-                self.band_window_deg,
-                self._calibration,
-            )
+            estimate = self._estimate_cache
+            if (
+                not self._estimate_cache_ms
+                or now_ms - self._estimate_cache_ms >= self.estimate_interval_ms
+            ):
+                estimate = estimate_location(
+                    session_stats,
+                    self.endpoints,
+                    self.effective_speed_km_s,
+                    self.grid,
+                    self.refine,
+                    self.band_factor,
+                    self.band_window_deg,
+                    self._calibration,
+                )
+                self._estimate_cache = estimate
+                self._estimate_cache_ms = now_ms
 
             baseline_reports = None
             deltas = None
@@ -783,9 +811,64 @@ def save_calibration(path, cal):
         json.dump(cal, f, indent=2)
 
 
-def build_calibration(cfg, stats, lat, lon, speed_km_s, path_stretch):
+def _append_calibration_sample(samples, ep_id, sample, max_samples):
+    entries = samples.get(ep_id)
+    if entries is None:
+        entries = []
+        samples[ep_id] = entries
+    entries.append(sample)
+    if len(entries) > max_samples:
+        entries[:] = entries[-max_samples:]
+
+
+def _fit_calibration_curve(samples):
+    points = [
+        (s.get("expectedMs"), s.get("rttMs"))
+        for s in samples
+        if isinstance(s.get("expectedMs"), (int, float))
+        and isinstance(s.get("rttMs"), (int, float))
+    ]
+    if not points:
+        return 0.0, 1.0, None
+    if len(points) < 2:
+        expected, rtt = points[-1]
+        bias = max(0.0, float(rtt) - float(expected))
+        return bias, 1.0, None
+    xs = [float(p[0]) for p in points]
+    ys = [float(p[1]) for p in points]
+    mean_x = sum(xs) / len(xs)
+    mean_y = sum(ys) / len(ys)
+    var_x = sum((x - mean_x) ** 2 for x in xs) / len(xs)
+    if var_x <= 0:
+        bias = max(0.0, mean_y - mean_x)
+        return bias, 1.0, None
+    cov_xy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / len(xs)
+    scale = cov_xy / var_x
+    if scale < MIN_CALIBRATION_SCALE:
+        scale = MIN_CALIBRATION_SCALE
+    if scale > MAX_CALIBRATION_SCALE:
+        scale = MAX_CALIBRATION_SCALE
+    bias = mean_y - scale * mean_x
+    if bias < 0:
+        bias = 0.0
+    rmse = sqrt(
+        sum((y - (bias + scale * x)) ** 2 for x, y in zip(xs, ys)) / len(xs)
+    )
+    return bias, scale, rmse
+
+
+def build_calibration(cfg, stats, lat, lon, speed_km_s, path_stretch, previous=None, source="baseline"):
     endpoints_cfg = cfg.get("endpoints") or []
     effective_speed = speed_km_s / max(1.0, path_stretch)
+    now_ms = int(time.time() * MS_PER_SEC)
+    prev_samples = {}
+    if previous and isinstance(previous, dict):
+        prev_samples = previous.get("samples") or {}
+    samples = {}
+    if isinstance(prev_samples, dict):
+        for key, value in prev_samples.items():
+            if isinstance(value, list):
+                samples[key] = list(value)
     endpoints = {}
     for ep_id, st in stats.items():
         base_id = ep_id.split("@", 1)[0]
@@ -802,15 +885,31 @@ def build_calibration(cfg, stats, lat, lon, speed_km_s, path_stretch):
         dist_km = haversine_km(lat, lon, ep_lat, ep_lon)
         speed_km_ms = effective_speed / MS_PER_SEC
         expected = RTT_FACTOR * dist_km / speed_km_ms
-        bias_ms = max(0.0, float(rtt) - expected)
-        endpoints[ep_id] = {"biasMs": bias_ms, "scale": 1.0}
+        sample = {
+            "lat": lat,
+            "lon": lon,
+            "distKm": dist_km,
+            "expectedMs": expected,
+            "rttMs": float(rtt),
+            "source": source,
+            "ts": now_ms,
+        }
+        _append_calibration_sample(samples, ep_id, sample, MAX_CALIBRATION_SAMPLES)
+
+    for ep_id, ep_samples in samples.items():
+        bias_ms, scale, rmse = _fit_calibration_curve(ep_samples)
+        entry = {"biasMs": bias_ms, "scale": scale, "sampleCount": len(ep_samples)}
+        if rmse is not None:
+            entry["rmseMs"] = rmse
+        endpoints[ep_id] = entry
     return {
-        "generatedAt": int(time.time() * MS_PER_SEC),
+        "generatedAt": now_ms,
         "calibrationLat": lat,
         "calibrationLon": lon,
         "speedKmS": speed_km_s,
         "pathStretch": max(1.0, path_stretch),
         "endpoints": endpoints,
+        "samples": samples,
     }
 
 
@@ -818,12 +917,15 @@ def calibration_meta(cal):
     if not cal:
         return None
     endpoints = cal.get("endpoints") or {}
+    samples = cal.get("samples") or {}
+    sample_count = sum(len(v) for v in samples.values()) if isinstance(samples, dict) else 0
     return {
         "path": cal.get("path"),
         "generatedAt": cal.get("generatedAt"),
         "calibrationLat": cal.get("calibrationLat"),
         "calibrationLon": cal.get("calibrationLon"),
         "count": len(endpoints),
+        "sampleCount": sample_count,
     }
 
 
@@ -1249,6 +1351,12 @@ def fit_band(obs, speed_km_s, center_lat, center_lon, best_sse, step, factor, wi
     max_lon = center_lon
     max_dist = 0.0
     points = 0
+    sum_dx = 0.0
+    sum_dy = 0.0
+    sum_dx2 = 0.0
+    sum_dy2 = 0.0
+    sum_dxdy = 0.0
+    km_per_deg = (2.0 * pi * EARTH_RADIUS_KM) / 360.0
 
     lat = lat_min
     while lat <= lat_max:
@@ -1263,11 +1371,44 @@ def fit_band(obs, speed_km_s, center_lat, center_lon, best_sse, step, factor, wi
                 max_lat = max(max_lat, lat)
                 min_lon = min(min_lon, lon)
                 max_lon = max(max_lon, lon)
+                dx = (lon - center_lon) * cos(radians(center_lat)) * km_per_deg
+                dy = (lat - center_lat) * km_per_deg
+                sum_dx += dx
+                sum_dy += dy
+                sum_dx2 += dx * dx
+                sum_dy2 += dy * dy
+                sum_dxdy += dx * dy
             lon += step
         lat += step
 
     if points == 0:
         return None
+
+    ellipse = None
+    if points >= 2:
+        mean_dx = sum_dx / points
+        mean_dy = sum_dy / points
+        var_x = sum_dx2 / points - mean_dx * mean_dx
+        var_y = sum_dy2 / points - mean_dy * mean_dy
+        cov_xy = sum_dxdy / points - mean_dx * mean_dy
+        if var_x < 0:
+            var_x = 0.0
+        if var_y < 0:
+            var_y = 0.0
+        trace = var_x + var_y
+        det = var_x * var_y - cov_xy * cov_xy
+        term = trace * trace / 4.0 - det
+        if term < 0:
+            term = 0.0
+        root = sqrt(term)
+        eig1 = trace / 2.0 + root
+        eig2 = trace / 2.0 - root
+        major = sqrt(eig1) if eig1 > 0 else 0.0
+        minor = sqrt(eig2) if eig2 > 0 else 0.0
+        angle = 0.5 * (180.0 / pi) * atan2(
+            2.0 * cov_xy, var_x - var_y
+        )
+        ellipse = {"majorKm": major, "minorKm": minor, "angleDeg": angle}
 
     return {
         "radiusKm": max_dist,
@@ -1277,6 +1418,7 @@ def fit_band(obs, speed_km_s, center_lat, center_lon, best_sse, step, factor, wi
         "maxLat": max_lat,
         "minLon": min_lon,
         "maxLon": max_lon,
+        "ellipse": ellipse,
     }
 
 
@@ -1307,6 +1449,15 @@ class Api:
         self.state_mgr._serializable = False
         self.client_runner._serializable = False
         self.server_runner._serializable = False
+        self._calib_lock = threading.Lock()
+        self._calib_job = {
+            "running": False,
+            "kind": None,
+            "startedAt": None,
+            "finishedAt": None,
+            "error": None,
+            "result": None,
+        }
 
     def get_state(self):
         state = self.state_mgr.get_state()
@@ -1314,6 +1465,7 @@ class Api:
         state["server"] = self.server_runner.status()
         state["configPath"] = str(self.state_mgr.config_path)
         state["logPath"] = str(self.state_mgr.log_path)
+        state["calibrationJob"] = self.get_calibration_status()
         return state
 
     def mark_session(self):
@@ -1395,6 +1547,41 @@ class Api:
         self.state_mgr.set_config(cfg)
         return {"ok": True, "count": len(endpoints), "pathCount": len(paths)}
 
+    def _start_calibration_job(self, kind, fn):
+        with self._calib_lock:
+            if self._calib_job.get("running"):
+                return {"ok": False, "error": "Calibration already running"}
+            self._calib_job = {
+                "running": True,
+                "kind": kind,
+                "startedAt": int(time.time() * MS_PER_SEC),
+                "finishedAt": None,
+                "error": None,
+                "result": None,
+            }
+
+        def runner():
+            result = None
+            error = None
+            try:
+                result = fn()
+                if isinstance(result, dict) and result.get("ok") is False:
+                    error = result.get("error")
+            except Exception as exc:
+                error = str(exc)
+            with self._calib_lock:
+                self._calib_job["running"] = False
+                self._calib_job["finishedAt"] = int(time.time() * MS_PER_SEC)
+                self._calib_job["error"] = error
+                self._calib_job["result"] = result
+
+        threading.Thread(target=runner, daemon=True).start()
+        return {"ok": True, "running": True}
+
+    def get_calibration_status(self):
+        with self._calib_lock:
+            return dict(self._calib_job)
+
     def generate_calibration(self, payload):
         payload = payload or {}
         lat = payload.get("lat")
@@ -1405,22 +1592,30 @@ class Api:
             lon = float(lon)
         except Exception:
             return {"ok": False, "error": "Invalid lat/lon"}
-        return self.state_mgr.generate_calibration(lat, lon, output_path, True)
+        return self._start_calibration_job(
+            "generate",
+            lambda: self.state_mgr.generate_calibration(lat, lon, output_path, True),
+        )
 
     def load_calibration(self, payload):
         payload = payload or {}
         path = payload.get("path")
         if not path:
             return {"ok": False, "error": "Path required"}
-        cal = load_calibration(Path(path).expanduser().resolve())
-        if not cal:
-            return {"ok": False, "error": "Failed to load calibration"}
-        self.state_mgr.set_calibration(cal, cal.get("path") or path)
-        return {"ok": True}
+        def run():
+            cal = load_calibration(Path(path).expanduser().resolve())
+            if not cal:
+                return {"ok": False, "error": "Failed to load calibration"}
+            self.state_mgr.set_calibration(cal, cal.get("path") or path)
+            return {"ok": True}
+
+        return self._start_calibration_job("load", run)
 
     def clear_calibration(self):
-        self.state_mgr.clear_calibration()
-        return {"ok": True}
+        return self._start_calibration_job(
+            "clear",
+            lambda: (self.state_mgr.clear_calibration() or {"ok": True}),
+        )
 
     def start_client(self):
         return self.client_runner.start()
