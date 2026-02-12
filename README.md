@@ -333,6 +333,8 @@ Non-goals:
 - Do **not** commit real secrets or local configs.
 - Keep JSONL logs private (they can reveal timing patterns).
 - Use `scripts/rotate_secret.py` if you need to rotate secrets.
+- Run `git config core.hooksPath .githooks` once to enable the local pre-commit secret scan.
+- CI enforces the same check in `.github/workflows/secret-scan.yml`.
 
 ---
 

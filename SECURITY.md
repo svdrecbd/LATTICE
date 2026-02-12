@@ -24,6 +24,12 @@ export LATTICE_SECRET_HEX=<new_secret_hex>
 - JSONL logs can contain sensitive timing patterns. Treat them as private.
 - Do not commit `*.jsonl` files.
 
+## Guardrails
+
+- Run `scripts/scan_secrets.sh` before pushing.
+- Enable local pre-commit checks with `git config core.hooksPath .githooks`.
+- CI runs the same scan on every push/pull request.
+
 ## Reporting
 
 If you find a security issue or privacy concern, open an issue with details or reach out privately if needed.
